@@ -13,12 +13,15 @@ export async function GET(request: Request) {
       .from('factory_evaluations')
       .select(`
         id,
-        factory_rewrites (
+        score_llm_judge,
+        score_semantic,
+        score_risk,
+        factory_rewrites!inner (
           output_text,
           prompt_config,
-          factory_segments (
+          factory_segments!inner (
             original_content,
-            factory_projects (
+            factory_projects!inner (
               domain
             )
           )
@@ -50,9 +53,9 @@ export async function GET(request: Request) {
       const segment = rewrite?.factory_segments;
       if (!rewrite || !segment) return;
 
-      const original = segment.original_content;
-      const rewritten = rewrite.output_text;
-      const domain = segment.factory_projects?.domain || 'Unknown';
+      const original = segment?.original_content;
+      const rewritten = rewrite?.output_text;
+      const domain = segment?.factory_projects?.domain || 'General';
       
       const systemPrompt = rewrite.prompt_config?.system_prompt || "You are an expert academic editor. Rewrite the text to be more human-like, removing AI patterns.";
 

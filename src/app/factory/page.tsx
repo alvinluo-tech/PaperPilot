@@ -121,26 +121,26 @@ export default function FactoryDashboard() {
               <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-100 text-xs font-semibold text-gray-500 uppercase tracking-wider">
                 For LLM Fine-tuning
               </div>
-              <a href="/api/factory/export?format=sharegpt" download className="px-4 py-2 text-sm text-gray-700 hover:bg-green-50 hover:text-green-700 transition flex justify-between items-center">
+              <a href="/api/factory/export?format=sharegpt" download="paperpilot_gold_sharegpt.jsonl" target="_blank" className="px-4 py-2 text-sm text-gray-700 hover:bg-green-50 hover:text-green-700 transition flex justify-between items-center">
                 ShareGPT Format <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">.jsonl</span>
               </a>
               <div className="h-px bg-gray-100"></div>
-              <a href="/api/factory/export?format=alpaca" download className="px-4 py-2 text-sm text-gray-700 hover:bg-green-50 hover:text-green-700 transition flex justify-between items-center">
+              <a href="/api/factory/export?format=alpaca" download="paperpilot_gold_alpaca.jsonl" target="_blank" className="px-4 py-2 text-sm text-gray-700 hover:bg-green-50 hover:text-green-700 transition flex justify-between items-center">
                 Alpaca Format <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">.jsonl</span>
               </a>
               
               <div className="px-3 py-1.5 bg-gray-50 border-y border-gray-100 text-xs font-semibold text-gray-500 uppercase tracking-wider mt-1">
                 For Human Review
               </div>
-              <a href="/api/factory/export?format=xlsx" download className="px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition flex justify-between items-center">
+              <a href="/api/factory/export?format=xlsx" download="paperpilot_gold_standard.xlsx" target="_blank" className="px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition flex justify-between items-center">
                 Excel Spreadsheet <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">.xlsx</span>
               </a>
               <div className="h-px bg-gray-100"></div>
-              <a href="/api/factory/export?format=csv" download className="px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition flex justify-between items-center">
+              <a href="/api/factory/export?format=csv" download="paperpilot_gold_standard.csv" target="_blank" className="px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition flex justify-between items-center">
                 CSV Data <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">.csv</span>
               </a>
               <div className="h-px bg-gray-100"></div>
-              <a href="/api/factory/export?format=txt" download className="px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition flex justify-between items-center">
+              <a href="/api/factory/export?format=txt" download="paperpilot_gold_standard.txt" target="_blank" className="px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition flex justify-between items-center">
                 Plain Text <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">.txt</span>
               </a>
             </div>

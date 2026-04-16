@@ -62,16 +62,43 @@ export function LoginForm() {
     setLoading(true);
     setError(null);
 
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/auth/callback?next=/update-password`,
-    });
+    try {
+      // 1. Check if the email is registered
+      const checkRes = await fetch('/api/auth/check-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      });
+      
+      if (!checkRes.ok) {
+        setError("Failed to verify email. Please try again.");
+        setLoading(false);
+        return;
+      }
+      
+      const { exists } = await checkRes.json();
+      
+      if (!exists) {
+        setError("This email address is not registered in our system.");
+        setLoading(false);
+        return;
+      }
 
-    if (error) {
-      setError(error.message);
-    } else {
-      setError("Check your email for the password reset link!");
+      // 2. Proceed with sending reset link
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/auth/callback?next=/update-password`,
+      });
+
+      if (error) {
+        setError(error.message);
+      } else {
+        setError("Check your email for the password reset link!");
+      }
+    } catch (err) {
+      setError("An unexpected error occurred.");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (

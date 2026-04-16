@@ -7,9 +7,10 @@ export async function GET(request: Request) {
     const supabase = await createClient();
     const { searchParams } = new URL(request.url);
     const format = searchParams.get('format') || 'sharegpt'; // 'sharegpt', 'alpaca', 'csv', 'xlsx', 'txt'
+    const domainFilter = searchParams.get('domain') || 'all';
 
     // Fetch all evaluations that are gold standards, joining with rewrites and segments
-    const { data: evaluations, error } = await supabase
+    let query = supabase
       .from('factory_evaluations')
       .select(`
         id,
@@ -28,6 +29,13 @@ export async function GET(request: Request) {
         )
       `)
       .eq('is_gold_standard', true);
+
+    if (domainFilter !== 'all') {
+      // Note: Because it's an inner join, we can filter on the nested table
+      query = query.eq('factory_rewrites.factory_segments.factory_projects.domain', domainFilter);
+    }
+
+    const { data: evaluations, error } = await query;
 
     if (error) {
       console.error('Export Error:', error);

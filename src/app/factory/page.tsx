@@ -18,12 +18,54 @@ export default function FactoryDashboard() {
 
   // Stats state
   const [showStats, setShowStats] = useState(false);
-  const [statsData, setStatsData] = useState<any>(null);
+  const [statsData, setStatsData] = useState<any>({ totalGold: 0 });
   const [isLoadingStats, setIsLoadingStats] = useState(false);
 
+  // Export state
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [exportFormat, setExportFormat] = useState('sharegpt');
+  const [exportDomain, setExportDomain] = useState('all');
+  const [filteredGoldCount, setFilteredGoldCount] = useState<number | null>(null);
+  
   useEffect(() => {
     fetchProjects();
+    checkGoldStandardExists();
   }, []);
+
+  // Update filtered count when domain changes
+  useEffect(() => {
+    if (exportDomain === 'all') {
+      setFilteredGoldCount(statsData.totalGold);
+    } else {
+      checkGoldStandardExists(exportDomain);
+    }
+  }, [exportDomain]);
+
+  const checkGoldStandardExists = async (filterDomain: string = 'all') => {
+    try {
+      let query = supabase
+        .from('factory_evaluations')
+        .select('id, factory_rewrites!inner(factory_segments!inner(factory_projects!inner(domain)))', { count: 'exact' })
+        .eq('is_gold_standard', true);
+        
+      if (filterDomain !== 'all') {
+        query = query.eq('factory_rewrites.factory_segments.factory_projects.domain', filterDomain);
+      }
+
+      const { count, error } = await query;
+      
+      if (!error) {
+        if (filterDomain === 'all') {
+          setStatsData((prev: any) => ({ ...prev, totalGold: count || 0 }));
+          setFilteredGoldCount(count || 0);
+        } else {
+          setFilteredGoldCount(count || 0);
+        }
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   const fetchProjects = async () => {
     setIsLoading(true);
@@ -112,39 +154,15 @@ export default function FactoryDashboard() {
             <span>Stats</span>
           </button>
           
-          {/* Export Dropdown */}
-          <div className="relative group">
-            <button className="flex items-center gap-1.5 text-sm bg-green-600 hover:bg-green-500 px-3 py-1.5 rounded transition text-white">
-              <Download className="w-4 h-4" /> Export Gold Standard
-            </button>
-            <div className="absolute hidden group-hover:flex flex-col top-full right-0 mt-1 bg-white border border-gray-200 rounded-md shadow-lg overflow-hidden z-50 w-56">
-              <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-100 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                For LLM Fine-tuning
-              </div>
-              <a href="/api/factory/export?format=sharegpt" download="paperpilot_gold_sharegpt.jsonl" target="_blank" className="px-4 py-2 text-sm text-gray-700 hover:bg-green-50 hover:text-green-700 transition flex justify-between items-center">
-                ShareGPT Format <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">.jsonl</span>
-              </a>
-              <div className="h-px bg-gray-100"></div>
-              <a href="/api/factory/export?format=alpaca" download="paperpilot_gold_alpaca.jsonl" target="_blank" className="px-4 py-2 text-sm text-gray-700 hover:bg-green-50 hover:text-green-700 transition flex justify-between items-center">
-                Alpaca Format <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">.jsonl</span>
-              </a>
-              
-              <div className="px-3 py-1.5 bg-gray-50 border-y border-gray-100 text-xs font-semibold text-gray-500 uppercase tracking-wider mt-1">
-                For Human Review
-              </div>
-              <a href="/api/factory/export?format=xlsx" download="paperpilot_gold_standard.xlsx" target="_blank" className="px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition flex justify-between items-center">
-                Excel Spreadsheet <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">.xlsx</span>
-              </a>
-              <div className="h-px bg-gray-100"></div>
-              <a href="/api/factory/export?format=csv" download="paperpilot_gold_standard.csv" target="_blank" className="px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition flex justify-between items-center">
-                CSV Data <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">.csv</span>
-              </a>
-              <div className="h-px bg-gray-100"></div>
-              <a href="/api/factory/export?format=txt" download="paperpilot_gold_standard.txt" target="_blank" className="px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 transition flex justify-between items-center">
-                Plain Text <span className="text-[10px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">.txt</span>
-              </a>
-            </div>
-          </div>
+          {/* Export Button (Triggers Modal) */}
+          <button 
+            onClick={() => setShowExportModal(true)}
+            disabled={statsData.totalGold === 0}
+            className={`flex items-center gap-1.5 text-sm px-3 py-1.5 rounded transition text-white ${statsData.totalGold > 0 ? 'bg-green-600 hover:bg-green-500' : 'bg-gray-400 cursor-not-allowed opacity-70'}`}
+            title={statsData.totalGold === 0 ? "No Gold Standard data available to export" : ""}
+          >
+            <Download className="w-4 h-4" /> Export Gold Standard
+          </button>
         </div>
       </header>
 
@@ -204,6 +222,88 @@ export default function FactoryDashboard() {
                 <button onClick={() => setShowStats(false)} className="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 transition">
                   Close
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Export Modal */}
+        {showExportModal && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-gray-900/50 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
+              <div className="flex justify-between items-center p-4 border-b border-gray-100 bg-gray-50">
+                <h2 className="font-semibold text-gray-800 flex items-center gap-2">
+                  <Download className="w-5 h-5 text-green-600" />
+                  Export Gold Standard Data
+                </h2>
+                <button onClick={() => setShowExportModal(false)} className="text-gray-400 hover:text-gray-600 transition">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              
+              <div className="p-6 space-y-5">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Export Format</label>
+                  <select 
+                    value={exportFormat}
+                    onChange={(e) => setExportFormat(e.target.value)}
+                    className="w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 sm:text-sm p-2.5 border text-gray-900 font-medium"
+                  >
+                    <optgroup label="For LLM Fine-tuning">
+                      <option value="sharegpt">ShareGPT (.jsonl)</option>
+                      <option value="alpaca">Alpaca (.jsonl)</option>
+                    </optgroup>
+                    <optgroup label="For Human Review">
+                      <option value="xlsx">Excel Spreadsheet (.xlsx)</option>
+                      <option value="csv">CSV Data (.csv)</option>
+                      <option value="txt">Plain Text (.txt)</option>
+                    </optgroup>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Filter by Domain</label>
+                  <select 
+                    value={exportDomain}
+                    onChange={(e) => setExportDomain(e.target.value)}
+                    className="w-full border-gray-300 rounded-md shadow-sm focus:ring-green-500 focus:border-green-500 sm:text-sm p-2.5 border text-gray-900 font-medium"
+                  >
+                    <option value="all">All Domains (Mixed)</option>
+                    <option value="CS">Computer Science</option>
+                    <option value="Bio">Biology & Medicine</option>
+                    <option value="Humanities">Humanities & Social Sciences</option>
+                    <option value="General">General Academic</option>
+                  </select>
+                </div>
+                
+                <div className={`p-3 rounded text-sm border flex items-center gap-2 ${filteredGoldCount === 0 ? 'bg-red-50 text-red-800 border-red-100' : 'bg-blue-50 text-blue-800 border-blue-100'}`}>
+                  <Database className={`w-4 h-4 ${filteredGoldCount === 0 ? 'text-red-500' : 'text-blue-500'}`} />
+                  <span>
+                    Ready to export <strong>{filteredGoldCount !== null ? filteredGoldCount : '...'}</strong> segments.
+                    {filteredGoldCount === 0 && " Please select a different domain."}
+                  </span>
+                </div>
+              </div>
+              
+              <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-end gap-2">
+                <button onClick={() => setShowExportModal(false)} className="px-4 py-2 bg-white border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50 transition">
+                  Cancel
+                </button>
+                {filteredGoldCount !== 0 ? (
+                  <a 
+                    href={`/api/factory/export?format=${exportFormat}${exportDomain !== 'all' ? `&domain=${exportDomain}` : ''}`} 
+                    download 
+                    target="_blank"
+                    onClick={() => setShowExportModal(false)}
+                    className="px-4 py-2 bg-green-600 border border-transparent rounded-md text-sm font-medium text-white hover:bg-green-700 transition shadow-sm flex items-center gap-2"
+                  >
+                    <Download className="w-4 h-4" /> Download
+                  </a>
+                ) : (
+                  <button disabled className="px-4 py-2 bg-gray-400 border border-transparent rounded-md text-sm font-medium text-white cursor-not-allowed flex items-center gap-2">
+                    <Download className="w-4 h-4" /> Download
+                  </button>
+                )}
               </div>
             </div>
           </div>

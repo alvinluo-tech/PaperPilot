@@ -5,7 +5,10 @@ import { createClient } from '@/infrastructure/database/supabase/client';
 import { ArrowLeft, RefreshCw, Star, CheckCircle, ThumbsUp, ThumbsDown, Zap } from 'lucide-react';
 import Link from 'next/link';
 
-export default function ProjectLab({ params }: { params: { id: string } }) {
+export default function ProjectLab({ params }: { params: Promise<{ id: string }> }) {
+  const resolvedParams = React.use(params);
+  const projectId = resolvedParams.id;
+  
   const [project, setProject] = useState<any>(null);
   const [segments, setSegments] = useState<any[]>([]);
   const [activeSegment, setActiveSegment] = useState<any>(null);
@@ -17,18 +20,24 @@ export default function ProjectLab({ params }: { params: { id: string } }) {
   const [isRewriting, setIsRewriting] = useState(false);
   const [isEvaluating, setIsEvaluating] = useState(false);
   const [editedRewriteText, setEditedRewriteText] = useState("");
+  const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
 
   const supabase = createClient();
 
+  const showToast = (message: string, type: 'success' | 'error') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  };
+
   useEffect(() => {
     fetchProjectData();
-  }, [params.id]);
+  }, [projectId]);
 
   const fetchProjectData = async () => {
     const { data: projData } = await supabase
       .from('factory_projects')
       .select('*')
-      .eq('id', params.id)
+      .eq('id', projectId)
       .single();
     
     if (projData) setProject(projData);
@@ -36,7 +45,7 @@ export default function ProjectLab({ params }: { params: { id: string } }) {
     const { data: segData } = await supabase
       .from('factory_segments')
       .select('*, factory_rewrites(*, factory_evaluations(*))')
-      .eq('project_id', params.id)
+      .eq('project_id', projectId)
       .order('order_index', { ascending: true });
     
     if (segData) {
@@ -48,6 +57,7 @@ export default function ProjectLab({ params }: { params: { id: string } }) {
   };
 
   const handleSelectSegment = (seg: any) => {
+    if (isRewriting || isEvaluating) return; // Prevent switching while processing
     setActiveSegment(seg);
     const latestRewrite = seg.factory_rewrites?.[seg.factory_rewrites.length - 1];
     setRewrite(latestRewrite || null);
@@ -67,8 +77,17 @@ export default function ProjectLab({ params }: { params: { id: string } }) {
         body: JSON.stringify({ segment_id: activeSegment.id })
       });
       if (res.ok) {
-        fetchProjectData(); // refresh to get new rewrite
+        const { rewrite: newRewrite } = await res.json();
+        await fetchProjectData(); // Background refresh
+        setRewrite(newRewrite);
+        setEditedRewriteText(newRewrite.output_text);
+        setEvaluation(null); // Clear previous evaluation for the new rewrite
+        showToast('Rewrite generated successfully!', 'success');
+      } else {
+        showToast('Failed to generate rewrite', 'error');
       }
+    } catch (err) {
+      showToast('An error occurred during rewrite', 'error');
     } finally {
       setIsRewriting(false);
     }
@@ -84,8 +103,15 @@ export default function ProjectLab({ params }: { params: { id: string } }) {
         body: JSON.stringify({ rewrite_id: rewrite.id, original_text: activeSegment.original_content, rewritten_text: rewrite.output_text })
       });
       if (res.ok) {
-        fetchProjectData(); // refresh to get evaluation
+        const { evaluation: newEval } = await res.json();
+        await fetchProjectData(); // Background refresh
+        setEvaluation(newEval); // Update state directly to bypass refresh delay
+        showToast('Evaluation completed!', 'success');
+      } else {
+        showToast('Failed to evaluate rewrite', 'error');
       }
+    } catch (err) {
+      showToast('An error occurred during evaluation', 'error');
     } finally {
       setIsEvaluating(false);
     }
@@ -106,7 +132,14 @@ export default function ProjectLab({ params }: { params: { id: string } }) {
   if (!project) return <div className="p-8 text-gray-500">Loading workspace...</div>;
 
   return (
-    <div className="flex flex-col h-screen bg-gray-50 font-sans overflow-hidden">
+    <div className="flex flex-col h-screen bg-gray-50 font-sans overflow-hidden relative">
+      {/* Toast Notification */}
+      {toast && (
+        <div className={`absolute top-4 left-1/2 transform -translate-x-1/2 z-50 px-4 py-2 rounded shadow-lg font-medium text-sm transition-all duration-300 ${toast.type === 'success' ? 'bg-green-100 text-green-800 border border-green-200' : 'bg-red-100 text-red-800 border border-red-200'}`}>
+          {toast.message}
+        </div>
+      )}
+
       {/* Header */}
       <header className="bg-slate-900 text-white p-4 shadow-sm flex items-center justify-between shrink-0">
         <div className="flex items-center gap-4">
@@ -136,7 +169,7 @@ export default function ProjectLab({ params }: { params: { id: string } }) {
                   <Star className="w-3 h-3 text-yellow-500 fill-yellow-500" />
                 )}
               </div>
-              <p className="text-xs text-gray-500 truncate">{seg.original_content}</p>
+              <p className="text-xs text-gray-700 truncate">{seg.original_content}</p>
             </div>
           ))}
         </div>
@@ -150,7 +183,7 @@ export default function ProjectLab({ params }: { params: { id: string } }) {
               <h2 className="font-semibold text-gray-700">Original AI Text</h2>
               <span className="text-xs text-gray-500">{activeSegment?.word_count || 0} words</span>
             </div>
-            <div className="p-6 overflow-y-auto flex-1 text-gray-800 text-sm leading-relaxed whitespace-pre-wrap">
+            <div className="p-6 overflow-y-auto flex-1 text-gray-900 font-medium text-sm leading-relaxed whitespace-pre-wrap">
               {activeSegment?.original_content}
             </div>
             <div className="p-4 bg-gray-50 border-t border-gray-200">
@@ -172,7 +205,14 @@ export default function ProjectLab({ params }: { params: { id: string } }) {
               {rewrite && <span className="text-xs bg-blue-200 text-blue-800 px-2 py-0.5 rounded">{rewrite.model_version}</span>}
             </div>
             
-            <div className="p-6 overflow-y-auto flex-1 flex flex-col gap-2">
+            <div className="p-6 overflow-y-auto flex-1 flex flex-col gap-2 relative">
+              {isRewriting && (
+                <div className="absolute inset-0 bg-white/90 flex flex-col items-center justify-center z-10 animate-pulse">
+                  <RefreshCw className="w-10 h-10 text-indigo-500 animate-spin mb-4" />
+                  <p className="text-base text-indigo-800 font-semibold">Synthesizing variations...</p>
+                  <p className="text-xs text-indigo-500 mt-2 font-medium">Applying voice seeds and imperfections to bypass AI detection</p>
+                </div>
+              )}
               {!rewrite ? (
                 <div className="h-full flex items-center justify-center text-gray-400 text-sm">
                   No rewrite attempts yet.
@@ -182,7 +222,7 @@ export default function ProjectLab({ params }: { params: { id: string } }) {
                   <textarea 
                     value={editedRewriteText}
                     onChange={(e) => setEditedRewriteText(e.target.value)}
-                    className="w-full flex-1 resize-none outline-none text-gray-800 text-sm leading-relaxed p-2 border border-transparent hover:border-gray-200 focus:border-blue-400 rounded transition"
+                    className="w-full flex-1 resize-none outline-none text-gray-900 font-medium text-sm leading-relaxed p-2 border border-transparent hover:border-gray-200 focus:border-blue-400 rounded transition"
                   />
                   {editedRewriteText !== rewrite.output_text && (
                     <button 
@@ -202,15 +242,25 @@ export default function ProjectLab({ params }: { params: { id: string } }) {
 
             {/* Evaluation Panel */}
             {rewrite && (
-              <div className="bg-slate-50 border-t border-gray-200 p-4">
-                {!evaluation ? (
+              <div className="bg-slate-50 border-t border-gray-200 p-4 relative min-h-[140px] flex flex-col justify-center">
+                {isEvaluating ? (
+                  <div className="flex flex-col items-center justify-center animate-pulse">
+                    <div className="flex space-x-2 mb-4">
+                      <div className="w-2.5 h-2.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                      <div className="w-2.5 h-2.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                      <div className="w-2.5 h-2.5 bg-blue-500 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                    </div>
+                    <p className="text-sm font-semibold text-slate-800">LLM Expert is reviewing...</p>
+                    <p className="text-xs text-slate-500 mt-1">Analyzing semantics, syntax diversity, and AI risks</p>
+                  </div>
+                ) : !evaluation ? (
                    <button 
                     onClick={handleEvaluate}
                     disabled={isEvaluating}
-                    className="w-full py-2 bg-slate-800 hover:bg-slate-900 text-white rounded-md font-medium text-sm flex items-center justify-center gap-2 transition disabled:opacity-50"
+                    className="w-full py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-md font-medium text-sm flex items-center justify-center gap-2 transition disabled:opacity-50"
                   >
-                    {isEvaluating ? <RefreshCw className="w-4 h-4 animate-spin" /> : <CheckCircle className="w-4 h-4" />}
-                    {isEvaluating ? 'Evaluating with LLM Judge...' : 'Run LLM Expert Evaluation'}
+                    <CheckCircle className="w-4 h-4" />
+                    Run LLM Expert Evaluation
                   </button>
                 ) : (
                   <div className="space-y-3">
@@ -225,22 +275,48 @@ export default function ProjectLab({ params }: { params: { id: string } }) {
                         <div className="flex flex-col">
                           <span className="text-xs text-gray-500 uppercase">Semantic Sim</span>
                           <span className="font-bold text-lg text-blue-600">
-                            {evaluation.score_semantic ? evaluation.score_semantic.toFixed(2) : 'N/A'}
+                            {evaluation.score_semantic ? (evaluation.score_semantic * 100).toFixed(0) + '%' : 'N/A'}
+                          </span>
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="text-xs text-gray-500 uppercase">AI Risk</span>
+                          <span className={`font-bold text-lg ${evaluation.score_risk > 0.5 ? 'text-red-500' : 'text-green-600'}`}>
+                            {evaluation.score_risk ? (evaluation.score_risk * 100).toFixed(0) + '%' : 'N/A'}
                           </span>
                         </div>
                       </div>
                       
-                      <div className="flex items-center gap-2">
-                        <button className="p-1.5 hover:bg-gray-200 rounded text-gray-500 hover:text-green-600"><ThumbsUp className="w-4 h-4"/></button>
-                        <button className="p-1.5 hover:bg-gray-200 rounded text-gray-500 hover:text-red-600"><ThumbsDown className="w-4 h-4"/></button>
-                        <button 
-                          onClick={toggleGoldStandard}
-                          className={`ml-2 flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition ${evaluation.is_gold_standard ? 'bg-yellow-100 text-yellow-700 border border-yellow-300' : 'bg-gray-100 text-gray-600 border border-gray-300 hover:bg-gray-200'}`}
-                        >
-                          <Star className={`w-4 h-4 ${evaluation.is_gold_standard ? 'fill-yellow-500 text-yellow-500' : ''}`} />
-                          {evaluation.is_gold_standard ? 'Gold Standard' : 'Mark as Gold'}
-                        </button>
-                      </div>
+                    <div className="flex items-center gap-2">
+                      <button 
+                        onClick={async () => {
+                          const newValue = evaluation.human_vote === true ? null : true;
+                          await supabase.from('factory_evaluations').update({ human_vote: newValue }).eq('id', evaluation.id);
+                          setEvaluation({ ...evaluation, human_vote: newValue });
+                          showToast(newValue === true ? 'Feedback recorded: Thumbs Up' : 'Feedback removed', 'success');
+                        }}
+                        className={`p-1.5 rounded transition ${evaluation.human_vote === true ? 'bg-green-100 text-green-600' : 'text-gray-500 hover:bg-gray-200 hover:text-green-600'}`}
+                      >
+                        <ThumbsUp className={`w-4 h-4 ${evaluation.human_vote === true ? 'fill-green-600' : ''}`} />
+                      </button>
+                      <button 
+                        onClick={async () => {
+                          const newValue = evaluation.human_vote === false ? null : false;
+                          await supabase.from('factory_evaluations').update({ human_vote: newValue }).eq('id', evaluation.id);
+                          setEvaluation({ ...evaluation, human_vote: newValue });
+                          showToast(newValue === false ? 'Feedback recorded: Thumbs Down' : 'Feedback removed', 'success');
+                        }}
+                        className={`p-1.5 rounded transition ${evaluation.human_vote === false ? 'bg-red-100 text-red-600' : 'text-gray-500 hover:bg-gray-200 hover:text-red-600'}`}
+                      >
+                        <ThumbsDown className={`w-4 h-4 ${evaluation.human_vote === false ? 'fill-red-600' : ''}`} />
+                      </button>
+                      <button 
+                        onClick={toggleGoldStandard}
+                        className={`ml-2 flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition ${evaluation.is_gold_standard ? 'bg-yellow-100 text-yellow-700 border border-yellow-300' : 'bg-gray-100 text-gray-600 border border-gray-300 hover:bg-gray-200'}`}
+                      >
+                        <Star className={`w-4 h-4 ${evaluation.is_gold_standard ? 'fill-yellow-500 text-yellow-500' : ''}`} />
+                        {evaluation.is_gold_standard ? 'Gold Standard' : 'Mark as Gold'}
+                      </button>
+                    </div>
                     </div>
                     
                     <div className="bg-white p-3 rounded border border-gray-200 text-xs text-gray-600 italic">

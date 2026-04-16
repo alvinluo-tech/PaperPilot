@@ -12,23 +12,27 @@ export async function POST(request: Request) {
 
     const supabase = await createClient();
 
-    // 1. LLM-as-a-Judge Evaluation (Using Mixtral for heterogeneous evaluation)
-    const prompt = `作为学术审稿人，请对比原文与改写稿。
-从以下三个维度给改写稿进行综合打分（1-10分）：
-- 事实保真 (Factuality)
-- 句式多样性 (Syntax Diversity)
-- 去 AI 特征 (Human-likeness / Imperfections)
+    // 1. LLM-as-a-Judge Evaluation (Using Llama 3.3 for reliable JSON format)
+    const prompt = `作为严苛的学术反抄袭专家，请仔细对比以下两段文本。
 
-请同时估算以下两个数值（0.0 到 1.0 之间）：
-- 语义相似度 (Semantic Similarity)：改写前后保留的核心语义比例
-- AI 风险值 (AI Risk Score)：这段文本被检测为 AI 生成的概率
+【评估维度】
+1. 事实保真度：核心事实和数值是否完全保留？
+2. 句式多样性：是否打破了AI典型的"八股文"平滑句式？
+3. 人工特征(Imperfection)：是否存在轻微的、人类独有的非正式结构或非对称性？
+
+【评估要求】
+务必保持严苛标准，大多数AI生成的改写文本得分应在 4-6 分。只有真正具备"人类特有的瑕疵与不完美"的文本才能得 8 分以上。
+根据以上维度，输出以下两个小数（范围 0.0 - 1.0）和一个整数（范围 1-10）：
+- 语义相似度 (score_semantic): 核心语义的保留比例
+- AI 风险值 (score_risk): 如果这是一篇期末论文，你认为它是AI生成的概率有多大？(越像AI，值越接近1.0)
+- 综合得分 (score_llm_judge): 基于事实保留、非平滑感和去AI特征的1-10综合评分
 
 输出格式必须是严格的 JSON 对象：
 {
-  "score_llm_judge": 8,
-  "llm_judge_reason": "简短的中文打分理由...",
+  "score_llm_judge": 5,
+  "llm_judge_reason": "这里用一句话简短解释打分理由，说明它的破绽或者它的精彩之处。",
   "score_semantic": 0.95,
-  "score_risk": 0.12
+  "score_risk": 0.85
 }
 
 原文:
@@ -40,9 +44,9 @@ ${rewritten_text}
 
     const completion = await groq.chat.completions.create({
       messages: [{ role: 'user', content: prompt }],
-      model: "mixtral-8x7b-32768",
+      model: "llama-3.3-70b-versatile", // Using a more reliable model for JSON format
       response_format: { type: "json_object" },
-      temperature: 0.2,
+      temperature: 0.7,
     });
 
     const resultText = completion.choices[0]?.message?.content || '{}';

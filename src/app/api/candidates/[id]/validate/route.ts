@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@/infrastructure/database/supabase/server";
 import { generateStructuredOutput } from "@/infrastructure/llm/groq/service";
 import { ValidationReportSchema } from "@/domain/types/schemas";
+import { z } from "zod";
 
 export const maxDuration = 60;
 

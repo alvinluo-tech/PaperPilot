@@ -34,23 +34,54 @@ export function LoginForm() {
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!email || !password) {
+      setError("Email and password are required");
+      return;
+    }
     setLoading(true);
     setError(null);
 
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        emailRedirectTo: `${window.location.origin}/auth/callback`,
-      },
-    });
+    try {
+      // 1. Check if the email is already registered using our secure endpoint
+      const checkRes = await fetch('/api/auth/check-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      });
+      
+      if (!checkRes.ok) {
+        setError("Failed to verify email availability. Please try again.");
+        setLoading(false);
+        return;
+      }
+      
+      const { exists } = await checkRes.json();
+      
+      if (exists) {
+        setError("This email address is already registered. Please sign in instead.");
+        setLoading(false);
+        return;
+      }
 
-    if (error) {
-      setError(error.message);
-    } else {
-      setError("Check your email for the confirmation link!");
+      // 2. Proceed with Supabase sign up if email is available
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo: `${window.location.origin}/auth/callback`,
+        },
+      });
+
+      if (error) {
+        setError(error.message);
+      } else {
+        setError("Check your email for the confirmation link!");
+      }
+    } catch (err) {
+      setError("An unexpected error occurred during sign up.");
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   const handleResetPassword = async (e: React.FormEvent) => {

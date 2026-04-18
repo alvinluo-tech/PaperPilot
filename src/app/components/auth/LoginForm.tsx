@@ -64,16 +64,19 @@ export function LoginForm() {
       }
 
       // 2. Proceed with Supabase sign up if email is available
-      const { error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: `${window.location.origin}/auth/callback`,
-        },
+      // Note: In Supabase, standard signUp will send the default confirmation email.
+      // To intercept and send via Resend, we can either use custom SMTP settings in Supabase Dashboard,
+      // OR we use the admin API to generate a signup link and send it manually.
+      // We will do the manual approach via a new API endpoint.
+      const signupRes = await fetch('/api/auth/signup-email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password })
       });
 
-      if (error) {
-        setError(error.message);
+      if (!signupRes.ok) {
+        const errorData = await signupRes.json();
+        setError(errorData.error || "Failed to register user");
       } else {
         setError("Check your email for the confirmation link!");
       }

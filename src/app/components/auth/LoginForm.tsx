@@ -84,13 +84,16 @@ export function LoginForm() {
         return;
       }
 
-      // 2. Proceed with sending reset link
-      const { error } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/auth/callback?next=/update-password`,
+      // 2. Proceed with sending reset link via Resend API
+      const resetRes = await fetch('/api/auth/reset-password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
       });
 
-      if (error) {
-        setError(error.message);
+      if (!resetRes.ok) {
+        const resetError = await resetRes.json();
+        setError(resetError.error || "Failed to send reset email");
       } else {
         setError("Check your email for the password reset link!");
       }

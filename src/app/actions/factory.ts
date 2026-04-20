@@ -4,8 +4,17 @@ import { createClient } from '@/infrastructure/database/supabase/server';
 import { groq } from '@/infrastructure/llm/groq/client';
 import { revalidatePath } from 'next/cache';
 
-function getMathGuidance(surprisals: number[]): { guidance: string, metricsLog: string } {
-  if (!surprisals || surprisals.length < 3) return { guidance: "", metricsLog: "Not enough tokens to calculate surprisal." };
+function getMathGuidance(tokensData: { token: string, logprob: number }[]): { guidance: string, metricsLog: string } {
+  // 1. Filter out first token and punctuation
+  const validTokens = tokensData.slice(1).filter(t => {
+    const isPunctuation = /^[.,?!;:'"()[\]{}]+$/.test(t.token.trim());
+    const isEmpty = t.token.trim() === '';
+    return !isPunctuation && !isEmpty;
+  });
+
+  const surprisals = validTokens.map(t => -t.logprob);
+
+  if (!surprisals || surprisals.length < 3) return { guidance: "", metricsLog: "Not enough valid tokens to calculate surprisal." };
   
   const meanS = surprisals.reduce((a, b) => a + b, 0) / surprisals.length;
   const varS = surprisals.reduce((a, b) => a + Math.pow(b - meanS, 2), 0) / surprisals.length;
@@ -24,7 +33,7 @@ function getMathGuidance(surprisals: number[]): { guidance: string, metricsLog: 
 
   const metricsLog = `
 === Mathematical Surprisal Metrics ===
-Token Count: ${surprisals.length}
+Valid Token Count: ${surprisals.length}
 Var(S) [Surprisal Variance]: ${varS.toFixed(4)} (Threshold: < 1.0)
 Var(Δ²S) [2nd Derivative Variance]: ${varDelta2S.toFixed(4)} (Threshold: < 1.5)
 Positivity Ratio of ΔS: ${(posDeltaSRatio * 100).toFixed(2)}% (Threshold: > 70%)
@@ -70,7 +79,7 @@ export async function rewriteSegmentAction(segmentId: string) {
     let mathMetricsLog = "";
     try {
       const togetherApiKey = process.env.TOGETHER_API_KEY || 'tgp_v1_nGUO3yq3Hl4ltQG9dsXJETpoX-MKjez1i6oQwbG3fMU';
-      const togetherResponse = await fetch("https://api.together.xyz/v1/chat/completions", {
+      const togetherResponse = await fetch("https://api.together.xyz/v1/completions", {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${togetherApiKey}`,
@@ -78,10 +87,9 @@ export async function rewriteSegmentAction(segmentId: string) {
         },
         body: JSON.stringify({
           model: "meta-llama/Meta-Llama-3-8B-Instruct-Lite",
-          messages: [
-            { role: "system", content: "Repeat the user's text exactly word for word. Do not add anything else." },
-            { role: "user", content: segment.original_content }
-          ],
+          prompt: segment.original_content,
+          max_tokens: 1,
+          echo: true,
           logprobs: 1
         })
       });
@@ -89,33 +97,34 @@ export async function rewriteSegmentAction(segmentId: string) {
       if (togetherResponse.ok) {
         const data = await togetherResponse.json();
         const logprobsObj = data.choices?.[0]?.logprobs;
-        let surprisals: number[] = [];
+        let tokensData: { token: string, logprob: number }[] = [];
         
-        if (logprobsObj) {
-          if (Array.isArray(logprobsObj.token_logprobs)) {
-            // Together specific format
-            surprisals = logprobsObj.token_logprobs
-              .map((lp: number) => -lp)
-              .filter((s: number) => !isNaN(s));
-          } else if (Array.isArray(logprobsObj.content)) {
-            // OpenAI standard format
-            surprisals = logprobsObj.content
-              .map((t: any) => -(typeof t === 'number' ? t : (t.logprob || 0)))
-              .filter((s: number) => !isNaN(s));
+        if (logprobsObj && Array.isArray(logprobsObj.tokens) && Array.isArray(logprobsObj.token_logprobs)) {
+          // Together v1/completions echo format
+          tokensData = logprobsObj.tokens.map((token: string, idx: number) => ({
+            token: token,
+            logprob: typeof logprobsObj.token_logprobs[idx] === 'number' ? logprobsObj.token_logprobs[idx] : 0
+          }));
+          
+          if (tokensData.length < 5) {
+            mathMetricsLog = "Warning: Together API returned very few tokens (" + tokensData.length + "). Likely it didn't echo the prompt logprobs.\nData: " + JSON.stringify(logprobsObj).substring(0, 300);
+            console.log(mathMetricsLog);
           }
         } else {
-          mathMetricsLog = "Warning: Together API returned OK, but no logprobs found in response:\n" + JSON.stringify(data).substring(0, 200);
+          mathMetricsLog = "Warning: Together API returned OK, but no logprobs found in response:\n" + JSON.stringify(data).substring(0, 500);
           console.log(mathMetricsLog);
         }
 
-        const mathResult = getMathGuidance(surprisals);
-        mathGuidance = mathResult.guidance;
-        mathMetricsLog = mathMetricsLog || mathResult.metricsLog;
-        
-        if (mathGuidance) {
-          console.log('[Surprisal Guidance Injected]:\n', mathGuidance);
-        } else {
-          console.log('[Surprisal Guidance]: Text metrics are within human-like thresholds. No extra constraints injected.');
+        if (tokensData.length > 0) {
+          const mathResult = getMathGuidance(tokensData);
+          mathGuidance = mathResult.guidance;
+          mathMetricsLog = mathMetricsLog || mathResult.metricsLog;
+          
+          if (mathGuidance) {
+            console.log('[Surprisal Guidance Injected]:\n', mathGuidance);
+          } else {
+            console.log('[Surprisal Guidance]: Text metrics are within human-like thresholds. No extra constraints injected.');
+          }
         }
       } else {
         mathMetricsLog = `Together AI logprobs error: API returned ${togetherResponse.status} - ${togetherResponse.statusText}`;

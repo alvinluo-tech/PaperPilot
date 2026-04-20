@@ -176,7 +176,10 @@ export default function ProjectLabClient({ projectId }: { projectId: string }) {
               <h2 className="font-semibold text-gray-700">Original AI Text</h2>
               <span className="text-xs text-gray-500">{activeSegment?.word_count || 0} words</span>
             </div>
-            <div className="p-6 overflow-y-auto flex-1 text-gray-900 font-medium text-sm leading-relaxed whitespace-pre-wrap">
+            <div 
+              key={activeSegment?.id} 
+              className="p-6 overflow-y-auto flex-1 text-gray-900 font-medium text-sm leading-relaxed whitespace-pre-wrap"
+            >
               {activeSegment?.original_content}
             </div>
             <div className="p-4 bg-gray-50 border-t border-gray-200">
@@ -213,8 +216,11 @@ export default function ProjectLabClient({ projectId }: { projectId: string }) {
               ) : (
                 <>
                   <textarea 
+                    key={rewrite.id}
                     value={editedRewriteText}
                     onChange={(e) => setEditedRewriteText(e.target.value)}
+                    data-gramm="false"
+                    spellCheck="false"
                     className="w-full flex-1 resize-none outline-none text-gray-900 font-medium text-sm leading-relaxed p-2 border border-transparent hover:border-gray-200 focus:border-blue-400 rounded transition"
                   />
                   {editedRewriteText !== rewrite.output_text && (

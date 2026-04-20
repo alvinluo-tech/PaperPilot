@@ -4,6 +4,38 @@ import { createClient } from '@/infrastructure/database/supabase/server';
 import { groq } from '@/infrastructure/llm/groq/client';
 import { revalidatePath } from 'next/cache';
 
+function getMathGuidance(surprisals: number[]): string {
+  if (!surprisals || surprisals.length < 3) return "";
+  
+  const meanS = surprisals.reduce((a, b) => a + b, 0) / surprisals.length;
+  const varS = surprisals.reduce((a, b) => a + Math.pow(b - meanS, 2), 0) / surprisals.length;
+  
+  const deltaS = [];
+  for (let i = 1; i < surprisals.length; i++) deltaS.push(surprisals[i] - surprisals[i-1]);
+  
+  const delta2S = [];
+  for (let i = 1; i < deltaS.length; i++) delta2S.push(deltaS[i] - deltaS[i-1]);
+  
+  const meanDelta2S = delta2S.reduce((a, b) => a + b, 0) / delta2S.length;
+  const varDelta2S = delta2S.reduce((a, b) => a + Math.pow(b - meanDelta2S, 2), 0) / delta2S.length;
+  
+  const posDeltaSCount = deltaS.filter(d => d > 0).length;
+  const posDeltaSRatio = posDeltaSCount / deltaS.length;
+
+  const guidance = [];
+  if (varS < 1.0) {
+    guidance.push("- Variance of Surprisal is too low: Please introduce 1-2 low-frequency academic terms and reduce the proportion of functional words.");
+  }
+  if (varDelta2S < 1.5) {
+    guidance.push("- Second-order derivative of Surprisal is too smooth: Please drastically change sentence lengths: insert a short sentence of under 5 words between two long complex sentences to artificially create a surprisal cliff.");
+  }
+  if (posDeltaSRatio > 0.7) {
+    guidance.push("- Surprisal monotonically increasing: Please break expectations at logical connections; do not use typical transition words, jump directly to the core point.");
+  }
+  
+  return guidance.join("\n");
+}
+
 export async function rewriteSegmentAction(segmentId: string) {
   try {
     if (!segmentId) {
@@ -23,15 +55,66 @@ export async function rewriteSegmentAction(segmentId: string) {
       return { error: 'Segment not found' };
     }
 
+    // 1.5 Calculate Mathematical Fluctuation (Surprisal) via Together AI
+    let mathGuidance = "";
+    try {
+      const togetherApiKey = process.env.TOGETHER_API_KEY || 'tgp_v1_nGUO3yq3Hl4ltQG9dsXJETpoX-MKjez1i6oQwbG3fMU';
+      const togetherResponse = await fetch("https://api.together.xyz/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${togetherApiKey}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({
+          model: "meta-llama/Meta-Llama-3-8B-Instruct-Lite",
+          messages: [
+            { role: "system", content: "Repeat the user's text exactly word for word. Do not add anything else." },
+            { role: "user", content: segment.original_content }
+          ],
+          logprobs: 1
+        })
+      });
+      
+      if (togetherResponse.ok) {
+        const data = await togetherResponse.json();
+        const logprobsObj = data.choices?.[0]?.logprobs;
+        let surprisals: number[] = [];
+        
+        if (logprobsObj) {
+          if (Array.isArray(logprobsObj.token_logprobs)) {
+            // Together specific format
+            surprisals = logprobsObj.token_logprobs
+              .map((lp: number) => -lp)
+              .filter((s: number) => !isNaN(s));
+          } else if (Array.isArray(logprobsObj.content)) {
+            // OpenAI standard format
+            surprisals = logprobsObj.content
+              .map((t: any) => -(typeof t === 'number' ? t : (t.logprob || 0)))
+              .filter((s: number) => !isNaN(s));
+          }
+        }
+
+        mathGuidance = getMathGuidance(surprisals);
+      }
+    } catch (e) {
+      console.error("Together AI logprobs error:", e);
+    }
+
     // 2. Perform the rewrite using Groq (Llama-3.3-70b)
-    const promptConfig = {
-      system_prompt: `You are an expert academic editor. Your goal is to rewrite the provided academic text to be more human-like, removing typical AI-generated patterns.
+    let systemPrompt = `You are an expert academic editor. Your goal is to rewrite the provided academic text to be more human-like, removing typical AI-generated patterns.
 Follow these strict rules:
 1. SYNTAX DIVERSITY: Mix short, punchy sentences with complex ones. Avoid rhythmic consistency.
 2. UNPREDICTABILITY: Do not use common AI transitions (e.g., 'Notably', 'Furthermore', 'Moreover', 'In conclusion', 'Additionally'). Use direct causal links.
 3. PRESERVE MEANING: Do not change the core numerical data, facts, or the primary claim.
 4. HUMAN-LIKE FLUCTUATION: Allow minor stylistic variations, non-standard punctuation (like dashes), or slight informal structural shifts to break AI probability distribution.
-5. NO APOLOGIES OR META-TEXT: Return ONLY the rewritten text, nothing else.`,
+5. NO APOLOGIES OR META-TEXT: Return ONLY the rewritten text, nothing else.`;
+
+    if (mathGuidance) {
+      systemPrompt += `\n\nMATHEMATICAL SURPRISAL GUIDANCE (Based on Log-probs Analysis of the original text):\n${mathGuidance}`;
+    }
+
+    const promptConfig = {
+      system_prompt: systemPrompt,
       model: "llama-3.3-70b-versatile",
       temperature: 0.7,
       max_tokens: 1024

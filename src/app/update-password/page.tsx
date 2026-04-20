@@ -1,42 +1,22 @@
 "use client";
 
-import { useState } from "react";
-import { createClient } from "@/infrastructure/database/supabase/client";
+import { useActionState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { updatePasswordAction } from "@/app/actions/auth";
 
 export default function UpdatePasswordPage() {
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [state, formAction, isPending] = useActionState(updatePasswordAction, { error: null, success: null });
   const router = useRouter();
-  const supabase = createClient();
 
-  const handleUpdatePassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (password !== confirmPassword) {
-      setError("Passwords do not match");
-      return;
-    }
-    
-    setLoading(true);
-    setError(null);
-
-    const { error } = await supabase.auth.updateUser({
-      password: password,
-    });
-
-    if (error) {
-      setError(error.message);
-    } else {
-      setError("Password updated successfully! Redirecting...");
-      setTimeout(() => {
+  useEffect(() => {
+    if (state.success) {
+      const timer = setTimeout(() => {
         router.push("/");
         router.refresh();
       }, 2000);
+      return () => clearTimeout(timer);
     }
-    setLoading(false);
-  };
+  }, [state.success, router]);
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
@@ -49,38 +29,39 @@ export default function UpdatePasswordPage() {
             Please enter your new password below
           </p>
         </div>
-        <form className="mt-8 space-y-6" onSubmit={handleUpdatePassword}>
+        <form className="mt-8 space-y-6" action={formAction}>
           <div className="space-y-4 rounded-md shadow-sm">
             <div>
               <label className="block text-sm font-medium text-gray-700">New Password</label>
               <input
+                name="password"
                 type="password"
                 required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
+                defaultValue=""
                 className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-blue-500 sm:text-sm"
               />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700">Confirm Password</label>
               <input
+                name="confirmPassword"
                 type="password"
                 required
-                value={confirmPassword}
-                onChange={(e) => setConfirmPassword(e.target.value)}
+                defaultValue=""
                 className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-gray-900 focus:border-blue-500 focus:outline-none focus:ring-blue-500 sm:text-sm"
               />
             </div>
           </div>
 
-          {error && <div className={`${error.includes('successfully') ? 'text-green-600 bg-green-50' : 'text-red-500 bg-red-50'} p-3 rounded-md text-sm text-center font-medium`}>{error}</div>}
+          {state?.error && <div className="text-red-500 bg-red-50 p-3 rounded-md text-sm text-center font-medium">{state.error}</div>}
+          {state?.success && <div className="text-green-600 bg-green-50 p-3 rounded-md text-sm text-center font-medium">{state.success}</div>}
 
           <button
             type="submit"
-            disabled={loading}
+            disabled={isPending || !!state?.success}
             className="group relative flex w-full justify-center rounded-md border border-transparent bg-blue-600 py-2 px-4 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
           >
-            {loading ? "Updating..." : "Update Password"}
+            {isPending ? "Updating..." : "Update Password"}
           </button>
         </form>
       </div>

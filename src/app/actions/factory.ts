@@ -4,8 +4,8 @@ import { createClient } from '@/infrastructure/database/supabase/server';
 import { groq } from '@/infrastructure/llm/groq/client';
 import { revalidatePath } from 'next/cache';
 
-function getMathGuidance(surprisals: number[]): string {
-  if (!surprisals || surprisals.length < 3) return "";
+function getMathGuidance(surprisals: number[]): { guidance: string, metricsLog: string } {
+  if (!surprisals || surprisals.length < 3) return { guidance: "", metricsLog: "Not enough tokens to calculate surprisal." };
   
   const meanS = surprisals.reduce((a, b) => a + b, 0) / surprisals.length;
   const varS = surprisals.reduce((a, b) => a + Math.pow(b - meanS, 2), 0) / surprisals.length;
@@ -22,6 +22,16 @@ function getMathGuidance(surprisals: number[]): string {
   const posDeltaSCount = deltaS.filter(d => d > 0).length;
   const posDeltaSRatio = posDeltaSCount / deltaS.length;
 
+  const metricsLog = `
+=== Mathematical Surprisal Metrics ===
+Token Count: ${surprisals.length}
+Var(S) [Surprisal Variance]: ${varS.toFixed(4)} (Threshold: < 1.0)
+Var(Δ²S) [2nd Derivative Variance]: ${varDelta2S.toFixed(4)} (Threshold: < 1.5)
+Positivity Ratio of ΔS: ${(posDeltaSRatio * 100).toFixed(2)}% (Threshold: > 70%)
+======================================`;
+
+  console.log(metricsLog);
+
   const guidance = [];
   if (varS < 1.0) {
     guidance.push("- Variance of Surprisal is too low: Please introduce 1-2 low-frequency academic terms and reduce the proportion of functional words.");
@@ -33,7 +43,7 @@ function getMathGuidance(surprisals: number[]): string {
     guidance.push("- Surprisal monotonically increasing: Please break expectations at logical connections; do not use typical transition words, jump directly to the core point.");
   }
   
-  return guidance.join("\n");
+  return { guidance: guidance.join("\n"), metricsLog };
 }
 
 export async function rewriteSegmentAction(segmentId: string) {
@@ -57,6 +67,7 @@ export async function rewriteSegmentAction(segmentId: string) {
 
     // 1.5 Calculate Mathematical Fluctuation (Surprisal) via Together AI
     let mathGuidance = "";
+    let mathMetricsLog = "";
     try {
       const togetherApiKey = process.env.TOGETHER_API_KEY || 'tgp_v1_nGUO3yq3Hl4ltQG9dsXJETpoX-MKjez1i6oQwbG3fMU';
       const togetherResponse = await fetch("https://api.together.xyz/v1/chat/completions", {
@@ -92,12 +103,27 @@ export async function rewriteSegmentAction(segmentId: string) {
               .map((t: any) => -(typeof t === 'number' ? t : (t.logprob || 0)))
               .filter((s: number) => !isNaN(s));
           }
+        } else {
+          mathMetricsLog = "Warning: Together API returned OK, but no logprobs found in response:\n" + JSON.stringify(data).substring(0, 200);
+          console.log(mathMetricsLog);
         }
 
-        mathGuidance = getMathGuidance(surprisals);
+        const mathResult = getMathGuidance(surprisals);
+        mathGuidance = mathResult.guidance;
+        mathMetricsLog = mathMetricsLog || mathResult.metricsLog;
+        
+        if (mathGuidance) {
+          console.log('[Surprisal Guidance Injected]:\n', mathGuidance);
+        } else {
+          console.log('[Surprisal Guidance]: Text metrics are within human-like thresholds. No extra constraints injected.');
+        }
+      } else {
+        mathMetricsLog = `Together AI logprobs error: API returned ${togetherResponse.status} - ${togetherResponse.statusText}`;
+        console.error(mathMetricsLog);
       }
-    } catch (e) {
-      console.error("Together AI logprobs error:", e);
+    } catch (e: any) {
+      mathMetricsLog = `Together AI fetch error: ${e.message}`;
+      console.error(mathMetricsLog);
     }
 
     // 2. Perform the rewrite using Groq (Llama-3.3-70b)
@@ -154,7 +180,7 @@ Follow these strict rules:
     }
 
     revalidatePath(`/factory/project/${segment.project_id}`);
-    return { rewrite, error: null };
+    return { rewrite, mathMetricsLog, error: null };
 
   } catch (error) {
     console.error('Factory Rewrite Action Error:', error);

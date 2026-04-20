@@ -80,6 +80,11 @@ export default function ProjectLabClient({ projectId }: { projectId: string }) {
           setEditedRewriteText(result.rewrite.output_text);
           setEvaluation(null); // Clear previous evaluation for the new rewrite
           showToast('Rewrite generated successfully!', 'success');
+          
+          if (result.mathMetricsLog) {
+            console.log("--- FROM SERVER ACTION ---");
+            console.log(result.mathMetricsLog);
+          }
         }
       } catch (err) {
         showToast('An error occurred during rewrite', 'error');

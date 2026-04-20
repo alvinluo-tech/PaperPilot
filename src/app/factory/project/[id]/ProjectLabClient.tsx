@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useTransition } from 'react';
 import { createClient } from '@/infrastructure/database/supabase/client';
 import { ArrowLeft, RefreshCw, Star, CheckCircle, ThumbsUp, ThumbsDown, Zap } from 'lucide-react';
 import Link from 'next/link';
+import { rewriteSegmentAction, evaluateRewriteAction } from '@/app/actions/factory';
 
 export default function ProjectLabClient({ projectId }: { projectId: string }) {
   const [project, setProject] = useState<any>(null);
@@ -14,8 +15,8 @@ export default function ProjectLabClient({ projectId }: { projectId: string }) {
   const [rewrite, setRewrite] = useState<any>(null);
   const [evaluation, setEvaluation] = useState<any>(null);
   
-  const [isRewriting, setIsRewriting] = useState(false);
-  const [isEvaluating, setIsEvaluating] = useState(false);
+  const [isRewriting, startRewriteTransition] = useTransition();
+  const [isEvaluating, startEvaluateTransition] = useTransition();
   const [editedRewriteText, setEditedRewriteText] = useState("");
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
 
@@ -66,54 +67,42 @@ export default function ProjectLabClient({ projectId }: { projectId: string }) {
     setEvaluation(latestEval || null);
   };
 
-  const handleRewrite = async () => {
+  const handleRewrite = () => {
     if (!activeSegment) return;
-    setIsRewriting(true);
-    try {
-      const res = await fetch('/api/factory/rewrite', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ segment_id: activeSegment.id })
-      });
-      if (res.ok) {
-        const { rewrite: newRewrite } = await res.json();
-        await fetchProjectData(); // Background refresh
-        setRewrite(newRewrite);
-        setEditedRewriteText(newRewrite.output_text);
-        setEvaluation(null); // Clear previous evaluation for the new rewrite
-        showToast('Rewrite generated successfully!', 'success');
-      } else {
-        showToast('Failed to generate rewrite', 'error');
+    startRewriteTransition(async () => {
+      try {
+        const result = await rewriteSegmentAction(activeSegment.id);
+        if (result.error) {
+          showToast(result.error, 'error');
+        } else if (result.rewrite) {
+          await fetchProjectData(); // Background refresh
+          setRewrite(result.rewrite);
+          setEditedRewriteText(result.rewrite.output_text);
+          setEvaluation(null); // Clear previous evaluation for the new rewrite
+          showToast('Rewrite generated successfully!', 'success');
+        }
+      } catch (err) {
+        showToast('An error occurred during rewrite', 'error');
       }
-    } catch (err) {
-      showToast('An error occurred during rewrite', 'error');
-    } finally {
-      setIsRewriting(false);
-    }
+    });
   };
 
-  const handleEvaluate = async () => {
+  const handleEvaluate = () => {
     if (!rewrite) return;
-    setIsEvaluating(true);
-    try {
-      const res = await fetch('/api/factory/evaluate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rewrite_id: rewrite.id, original_text: activeSegment.original_content, rewritten_text: rewrite.output_text })
-      });
-      if (res.ok) {
-        const { evaluation: newEval } = await res.json();
-        await fetchProjectData(); // Background refresh
-        setEvaluation(newEval); // Update state directly to bypass refresh delay
-        showToast('Evaluation completed!', 'success');
-      } else {
-        showToast('Failed to evaluate rewrite', 'error');
+    startEvaluateTransition(async () => {
+      try {
+        const result = await evaluateRewriteAction(rewrite.id, activeSegment.original_content, rewrite.output_text);
+        if (result.error) {
+          showToast(result.error, 'error');
+        } else if (result.evaluation) {
+          await fetchProjectData(); // Background refresh
+          setEvaluation(result.evaluation); // Update state directly to bypass refresh delay
+          showToast('Evaluation completed!', 'success');
+        }
+      } catch (err) {
+        showToast('An error occurred during evaluation', 'error');
       }
-    } catch (err) {
-      showToast('An error occurred during evaluation', 'error');
-    } finally {
-      setIsEvaluating(false);
-    }
+    });
   };
 
   const toggleGoldStandard = async () => {

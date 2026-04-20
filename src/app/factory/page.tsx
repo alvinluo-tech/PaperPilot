@@ -1,9 +1,10 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useTransition } from 'react';
 import { createClient } from '@/infrastructure/database/supabase/client';
 import { Database, FileText, Upload, Plus, Download, BarChart2, List, X } from 'lucide-react';
 import Link from 'next/link';
+import { ingestProjectAction } from '@/app/actions/factory';
 
 export default function FactoryDashboard() {
   const [projects, setProjects] = useState<any[]>([]);
@@ -14,7 +15,7 @@ export default function FactoryDashboard() {
   const [projectName, setProjectName] = useState("");
   const [domain, setDomain] = useState("CS");
   const [textContent, setTextContent] = useState("");
-  const [isIngesting, setIsIngesting] = useState(false);
+  const [isIngesting, startIngestTransition] = useTransition();
 
   // Stats state
   const [showStats, setShowStats] = useState(false);
@@ -80,29 +81,31 @@ export default function FactoryDashboard() {
     setIsLoading(false);
   };
 
-  const handleIngest = async (e: React.FormEvent) => {
+  const handleIngest = (e: React.FormEvent) => {
     e.preventDefault();
     if (!projectName || !textContent) return;
-    setIsIngesting(true);
     
-    try {
-      const res = await fetch('/api/factory/ingest', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: projectName, domain, content: textContent })
-      });
-      
-      if (!res.ok) throw new Error("Failed to ingest");
-      
-      setProjectName("");
-      setTextContent("");
-      fetchProjects(); // Refresh list
-    } catch (err) {
-      console.error(err);
-      alert("Error creating project");
-    } finally {
-      setIsIngesting(false);
-    }
+    startIngestTransition(async () => {
+      try {
+        const formData = new FormData();
+        formData.append('name', projectName);
+        formData.append('domain', domain);
+        formData.append('content', textContent);
+        
+        const result = await ingestProjectAction({ error: null }, formData);
+        
+        if (result.success) {
+          setProjectName("");
+          setTextContent("");
+          fetchProjects(); // Refresh list
+        } else {
+          alert(result.error || "Failed to ingest");
+        }
+      } catch (err) {
+        console.error(err);
+        alert("Error creating project");
+      }
+    });
   };
 
   const fetchStats = async () => {

@@ -79,6 +79,84 @@ Follow these strict rules:
   }
 }
 
+export async function ingestProjectAction(prevState: { error: string | null, success?: boolean }, formData: FormData) {
+  try {
+    const name = formData.get("name") as string;
+    const domain = formData.get("domain") as string;
+    const content = formData.get("content") as string;
+
+    if (!name || !content) {
+      return { error: "Name and content are required", success: false };
+    }
+
+    const supabase = await createClient();
+    
+    // Auth Check
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    if (authError || !user) {
+      return { error: "Unauthorized", success: false };
+    }
+
+    // 1. Create Project
+    const { data: project, error: projError } = await supabase
+      .from('factory_projects')
+      .insert({
+        name,
+        domain: domain || 'General',
+        user_id: user.id
+      })
+      .select()
+      .single();
+
+    if (projError) return { error: projError.message, success: false };
+
+    // 2. Chunking Logic (M1)
+    const rawParagraphs = content.split(/\n\s*\n/).map((p: string) => p.trim()).filter((p: string) => p.length > 0);
+    
+    const chunks: string[] = [];
+    let currentChunk = "";
+
+    for (const p of rawParagraphs) {
+      const pWordCount = p.split(/\s+/).length;
+      
+      if (currentChunk) {
+        const currentWordCount = currentChunk.split(/\s+/).length;
+        if (currentWordCount < 50) {
+          // Merge if current chunk is too short
+          currentChunk += "\n\n" + p;
+        } else {
+          chunks.push(currentChunk);
+          currentChunk = p;
+        }
+      } else {
+        currentChunk = p;
+      }
+    }
+    if (currentChunk) chunks.push(currentChunk);
+
+    // 3. Save Segments
+    const segmentsData = chunks.map((text, idx) => ({
+      project_id: project.id,
+      original_content: text,
+      word_count: text.split(/\s+/).length,
+      order_index: idx
+    }));
+
+    const { error: segError } = await supabase
+      .from('factory_segments')
+      .insert(segmentsData);
+
+    if (segError) return { error: segError.message, success: false };
+
+    revalidatePath('/factory');
+    return { error: null, success: true };
+
+  } catch (error: any) {
+    console.error("[Factory Ingest Action Error]", error);
+    return { error: error.message || "Internal Server Error", success: false };
+  }
+}
+
 export async function evaluateRewriteAction(rewriteId: string, originalText: string, rewrittenText: string) {
   try {
     if (!rewriteId || !originalText || !rewrittenText) {

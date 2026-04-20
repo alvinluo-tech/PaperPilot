@@ -79,7 +79,7 @@ export async function rewriteSegmentAction(segmentId: string) {
     let mathMetricsLog = "";
     try {
       const togetherApiKey = process.env.TOGETHER_API_KEY || 'tgp_v1_nGUO3yq3Hl4ltQG9dsXJETpoX-MKjez1i6oQwbG3fMU';
-      const togetherResponse = await fetch("https://api.together.xyz/v1/chat/completions", {
+      const togetherResponse = await fetch("https://api.together.xyz/v1/completions", {
         method: "POST",
         headers: {
           "Authorization": `Bearer ${togetherApiKey}`,
@@ -88,7 +88,7 @@ export async function rewriteSegmentAction(segmentId: string) {
         body: JSON.stringify({
           model: "meta-llama/Meta-Llama-3-8B-Instruct-Lite",
           prompt: segment.original_content,
-          max_tokens: 0, // Together AI allows 0 to only process the prompt without generating new tokens
+          max_tokens: 0, // Request 0 tokens so the API only processes and returns the prompt
           echo: true,
           logprobs: 1
         })
@@ -114,6 +114,12 @@ export async function rewriteSegmentAction(segmentId: string) {
             mathMetricsLog = "Warning: Together API returned very few tokens (" + tokensData.length + "). Likely it didn't echo the prompt logprobs.\nData: " + JSON.stringify(logprobsObj).substring(0, 300);
             console.log(mathMetricsLog);
           }
+        } else if (logprobsObj && Array.isArray(logprobsObj.token_ids) && Array.isArray(logprobsObj.token_logprobs)) {
+          // Alternative Together Format (some models return this structure)
+          tokensData = logprobsObj.tokens.map((token: string, idx: number) => ({
+            token: token,
+            logprob: typeof logprobsObj.token_logprobs[idx] === 'number' ? logprobsObj.token_logprobs[idx] : 0
+          }));
         } else {
           mathMetricsLog = "Warning: Together API returned OK, but no logprobs found in response:\n" + JSON.stringify(data).substring(0, 500);
           console.log(mathMetricsLog);

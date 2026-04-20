@@ -47,11 +47,14 @@ The Data Factory flow is designed to bulk-process raw AI text into high-quality 
 - **Method**: Rule-based text processing.
 - **Strategy**: Splits raw text by double newlines (`\n\n`) into paragraphs. If a paragraph has fewer than 50 words, it merges it with the subsequent paragraph to maintain contextual density.
 
-### 2.2 Pipeline Rewrite
+### 2.2 Pipeline Rewrite (with Mathematical Surprisal Guidance)
 - **Action**: `rewriteSegmentAction` (Server Action)
-- **Model**: `llama-3.3-70b-versatile`
-- **Role**: Expert academic editor
+- **Models**: 
+  - `meta-llama/Meta-Llama-3-8B-Instruct-Lite` (via Together AI) - For Surprisal (Log-probs) Extraction.
+  - `llama-3.3-70b-versatile` (via Groq) - For the actual rewriting.
+- **Role**: Expert academic editor driven by mathematical feedback
 - **Prompt Strategy**:
+  - **Mathematical Fluctuation Injection**: Before rewriting, the system calls the Together AI API to extract the `logprobs` of the original text. It calculates the **Variance of Surprisal ($\text{Var}(S)$)**, the **Variance of the Second-Order Derivative ($\text{Var}(\Delta^2 S)$)**, and the **Positivity Ratio of the First-Order Derivative**. Based on these mathematical metrics, it injects highly specific, dynamic constraints into the rewrite prompt (e.g., "Variance of Surprisal is too low: Please introduce 1-2 low-frequency academic terms...").
   - **Syntax Diversity**: Mix short, punchy sentences with complex ones. Avoid rhythmic consistency.
   - **Unpredictability**: Bypasses AI probability distributions by avoiding common AI transitions (The Blacklist).
   - **Human-like Fluctuation**: Intentionally allows minor stylistic variations, non-standard punctuation (like dashes), or slight informal structural shifts.
